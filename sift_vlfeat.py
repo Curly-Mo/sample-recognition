@@ -58,7 +58,8 @@ class Model(object):
         self.spectrograms = spectrograms
 
 
-def cqtgram(y, hop_length=512, octave_bins=24, n_octaves=8, fmin=40, sr=22050, perceptual_weighting=False):
+def cqtgram(y, hop_length=512, octave_bins=24, n_octaves=8, fmin=40, sr=22050,
+            perceptual_weighting=False):
     S_complex = librosa.cqt(
         y,
         sr=sr,
@@ -159,10 +160,10 @@ def sift_match(path1, path2, hop_length, abs_thresh=None, ratio_thresh=None, oct
     #mng.full_screen_toggle()
     ax1 = fig.add_subplot(2, 1, 1)
     plot_spectrogram(S1, hop_length, octave_bins, fmin, path1, sr=sr)
-    vl_plotframe(np.array([kp.kp for kp in kp1]).T, color='y', linewidth=1)
+    vl_plotframe(np.array([kp.kp for kp in kp1]).T, color='g', linewidth=1)
     ax2 = fig.add_subplot(2, 1, 2)
     plot_spectrogram(S2, hop_length, octave_bins, fmin, path2, sr=sr)
-    vl_plotframe(np.array([kp.kp for kp in kp2]).T, color='y', linewidth=1)
+    vl_plotframe(np.array([kp.kp for kp in kp2]).T, color='g', linewidth=1)
 
     # ANN
     distances, indices = ann.nearest_neighbors(desc1, desc2, k=2)
@@ -306,18 +307,18 @@ def plot_all_matches(S, matches, model, title, plot_all_kp=False):
         if not plot_all_kp:
             # Plot keypoints
             plt.axes(ax1)
-            vl_plotframe(np.matrix(match.query.kp).T, color='y', linewidth=1)
+            vl_plotframe(np.matrix(match.query.kp).T, color='g', linewidth=1)
             plt.axes(ax2)
-            vl_plotframe(np.matrix(match.train.kp).T, color='y', linewidth=1)
+            vl_plotframe(np.matrix(match.train.kp).T, color='g', linewidth=1)
     if plot_all_kp:
         logger.info('Drawing ALL keypoints (this may take some time)...')
         for plot in source_plots:
             frames = np.array([kp.kp for kp in model.keypoints if kp.source == plot])
             plt.axes(source_plots[plot])
-            vl_plotframe(frames.T, color='y', linewidth=1)
+            vl_plotframe(frames.T, color='g', linewidth=1)
 
 
-def plot_clusters(S, clusters, model, title, plot_all_kp=False):
+def plot_clusters(S, clusters, model, title, plot_all_kp=False, S_kp=None):
     """Draw matches across axes"""
     fig = plt.figure()
     #mng = plt.get_current_fig_manager()
@@ -378,20 +379,23 @@ def plot_clusters(S, clusters, model, title, plot_all_kp=False):
             if not plot_all_kp:
                 # Plot keypoints
                 plt.axes(ax1)
-                vl_plotframe(np.matrix(match.query.kp).T, color='y', linewidth=1)
+                vl_plotframe(np.matrix(match.query.kp).T, color='g', linewidth=1)
                 plt.axes(ax2)
-                vl_plotframe(np.matrix(match.train.kp).T, color='y', linewidth=1)
+                vl_plotframe(np.matrix(match.train.kp).T, color='g', linewidth=1)
 
     if plot_all_kp:
+        frames = np.array([kp.kp for kp in S_kp])
+        plt.axes(ax1)
+        vl_plotframe(frames.T, color='g', linewidth=1)
         for plot in source_plots:
             frames = np.array([kp.kp for kp in model.keypoints if kp.source == plot])
             plt.axes(source_plots[plot])
-            vl_plotframe(frames.T, color='y', linewidth=1)
+            vl_plotframe(frames.T, color='g', linewidth=1)
     #plt.tight_layout()
     #plt.subplots_adjust(wspace=0.2, hspace=0.2)
 
 
-def plot_keypoints(keypoints, color='y', linewidth=1):
+def plot_keypoints(keypoints, color='g', linewidth=1):
     for keypoint in keypoints:
         c = plt.Circle((keypoint.x, keypoint.y), keypoint.scale, color=color)
         ax = plt.gca()
@@ -441,6 +445,7 @@ def train_keypoints(audio_paths, hop_length, octave_bins=24, n_octaves=7, fmin=5
     model = Model(matcher, keypoints, settings, spectrograms)
     if save:
         logger.info('Saving model to disk... ({})'.format(save))
+        logger.debug(type(model.matcher))
         joblib.dump(model, save, compress=True)
     return model
 
@@ -478,7 +483,7 @@ def find_matches(audio_path, model):
     matches = []
     for i, distance in enumerate(distances):
         matches.append(Match(kp[i], model.keypoints[indices[i][0]], distance[0], distance[1]))
-    return matches, S
+    return matches, S, kp
 
 
 def query_track(audio_path, model, abs_thresh=None, ratio_thresh=None, cluster_dist=1.0, cluster_size=1, plot=True, plot_all_kp=False, save=True):
@@ -486,18 +491,18 @@ def query_track(audio_path, model, abs_thresh=None, ratio_thresh=None, cluster_d
         logger.info('Loading model into memory: {}'.format(model))
         model = joblib.load(model)
     logger.info('Settings: {}'.format(model.settings))
-    matches, S = find_matches(audio_path, model)
+    matches, S, kp = find_matches(audio_path, model)
 
     cluster_dist = int((model.settings['sr'] / model.settings['hop_length']) * cluster_dist)
     clusters = filter_matches(matches, abs_thresh, ratio_thresh, cluster_dist, cluster_size)
 
     # Plot keypoint images and Draw matching lines
     if plot:
-        plot_clusters(S, clusters, model, audio_path, plot_all_kp)
+        plot_clusters(S, clusters, model, audio_path, plot_all_kp, kp)
         plt.show(block=False)
     if save:
         if not plot:
-            plot_clusters(S, clusters, model, audio_path, plot_all_kp)
+            plot_clusters(S, clusters, model, audio_path, plot_all_kp, kp)
         plt.savefig('{}_{}.svg'.format(os.path.join('plots', os.path.basename(audio_path)), datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')), format='svg', figsize=(1920, 1080), bbox_inches=None)
 
     display_results(clusters, model.settings)
@@ -602,7 +607,7 @@ if __name__ == '__main__':
     if args.command == 'train':
         del args.command
         model = train_keypoints(**vars(args))
-    if args.command == 'query':
+    elif args.command == 'query':
         del args.command
         results = query_tracks(**vars(args))
         for clusters, matches in results:
