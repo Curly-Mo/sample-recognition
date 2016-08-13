@@ -15,7 +15,9 @@ from vlfeat.plotop.vl_plotframe import vl_plotframe
 import librosa
 from sklearn.externals import joblib
 
+from fingerprint import Fingerprint
 import ann
+
 
 seaborn.set(style='ticks')
 seaborn.set_context("paper")
@@ -213,6 +215,36 @@ def filter_matches(matches, abs_thresh=None, ratio_thresh=None, cluster_dist=20,
 
 
 def cluster_matches(matches, cluster_dist):
+    class Cluster(object):
+        def __init__(self, match):
+            self.min_query = match.query.x
+            self.max_query = match.query.x
+            self.min_train = match.train.x
+            self.max_train = match.train.x
+            self.matches = [match]
+
+        def add(self, match):
+            if match.query.x > self.min_query:
+                self.min_query = match.query.x
+            if match.query.x > self.max_query:
+                self.max_query = match.query.x
+            if match.train.x < self.min_train:
+                self.min_train = match.train.x
+            if match.train.x > self.max_train:
+                self.max_train = match.train.x
+            self.matches.append(match)
+
+        def merge(self, cluster):
+            if cluster.min_query < self.min_query:
+                self.min_query = cluster.min_query
+            if cluster.max_query > self.max_query:
+                self.max_query = cluster.max_query
+            if cluster.min_train < self.min_train:
+                self.min_train = cluster.min_train
+            if cluster.max_train > self.max_train:
+                self.max_train = cluster.max_train
+            self.matches.extend(cluster.matches)
+
     logger.info('Clustering matches...')
     logger.info('cluster_dist: {}'.format(cluster_dist))
     matches = sorted(matches, key=lambda m: (m.train.source, m.query.x))
@@ -222,16 +254,40 @@ def cluster_matches(matches, cluster_dist):
             cluster_found = False
             for cluster in clusters.get(source, []):
                 if (
-                  (abs(match.query.x - cluster[0].query.x) <= cluster_dist or
-                   abs(match.query.x - cluster[-1].query.x) <= cluster_dist) and
-                  (abs(match.train.x - cluster[0].train.x) <= cluster_dist or
-                   abs(match.train.x - cluster[-1].train.x) <= cluster_dist)
+                  (match.query.x >= cluster.min_query - cluster_dist and
+                   match.query.x <= cluster.max_query + cluster_dist) and
+                  (match.train.x >= cluster.min_train - cluster_dist and
+                   match.train.x <= cluster.max_train + cluster_dist)
                 ):
-                    cluster_found = True
-                    cluster.append(match)
+                    if not any(match.train.x == c.train.x and
+                               match.train.y == c.train.y
+                               for c in cluster.matches):
+                        cluster_found = True
+                        cluster.add(match)
             if not cluster_found:
-                clusters.setdefault(source, []).append([match])
-    return [cluster for sources in clusters.values() for cluster in sources]
+                clusters.setdefault(source, []).append(Cluster(match))
+        # Merge nearby clusters
+        merged_clusters = clusters.get(source, [])
+        for cluster in clusters.get(source, []):
+            for c in merged_clusters:
+                if (
+                  c != cluster and
+                  (cluster.min_query >= c.min_query - cluster_dist and
+                   cluster.max_query <= c.max_query + cluster_dist) and
+                  (cluster.min_train >= c.min_train - cluster_dist and
+                   cluster.max_train <= c.max_train + cluster_dist)
+                ):
+                    cluster_points = set((m.train.x, m.train.y) for m in cluster.matches)
+                    c_points = set((m.train.x, m.train.y) for m in c.matches)
+                    if cluster_points & c_points:
+                        break
+                    c.merge(cluster)
+                    logging.info(len(merged_clusters))
+                    merged_clusters.remove(cluster)
+                    logging.info(len(merged_clusters))
+                    cluster = c
+        clusters['source'] = merged_clusters
+    return [cluster.matches for sources in clusters.values() for cluster in sources]
 
 
 def plot_matches(ax1, ax2, matches):
@@ -318,7 +374,7 @@ def plot_all_matches(S, matches, model, title, plot_all_kp=False):
             vl_plotframe(frames.T, color='g', linewidth=1)
 
 
-def plot_clusters(S, clusters, model, title, plot_all_kp=False, S_kp=None):
+def plot_clusters(S, clusters, spectrograms, settings, title, plot_all_kp=False, S_kp=None):
     """Draw matches across axes"""
     fig = plt.figure()
     #mng = plt.get_current_fig_manager()
@@ -327,11 +383,11 @@ def plot_clusters(S, clusters, model, title, plot_all_kp=False, S_kp=None):
         logger.info('No matches found')
         plot_spectrogram(
             S,
-            model.settings['hop_length'],
-            model.settings['octave_bins'],
-            model.settings['fmin'],
+            settings['hop_length'],
+            settings['octave_bins'],
+            settings['fmin'],
             title,
-            sr=model.settings['sr'],
+            sr=settings['sr'],
             cbar=True
         )
         return
@@ -340,13 +396,16 @@ def plot_clusters(S, clusters, model, title, plot_all_kp=False, S_kp=None):
     ax1 = fig.add_subplot(rows, cols, (1, cols))
     plot_spectrogram(
         S,
-        model.settings['hop_length'],
-        model.settings['octave_bins'],
-        model.settings['fmin'],
+        settings['hop_length'],
+        settings['octave_bins'],
+        settings['fmin'],
         title,
-        sr=model.settings['sr'],
+        sr=settings['sr'],
         cbar=True
     )
+
+    logger.info('Loading spectrograms into memory: {}'.format(spectrograms))
+    spectrograms = joblib.load(spectrograms)
 
     logger.info('Drawing lines between matches')
     colors = itertools.cycle('bgrck')
@@ -358,12 +417,12 @@ def plot_clusters(S, clusters, model, title, plot_all_kp=False, S_kp=None):
             if ax2 is None:
                 ax2 = fig.add_subplot(rows, cols, cols + len(source_plots) + 1)
                 plot_spectrogram(
-                    model.spectrograms[match.train.source],
-                    model.settings['hop_length'],
-                    model.settings['octave_bins'],
-                    model.settings['fmin'],
+                    spectrograms[match.train.source],
+                    settings['hop_length'],
+                    settings['octave_bins'],
+                    settings['fmin'],
                     match.train.source,
-                    sr=model.settings['sr'],
+                    sr=settings['sr'],
                     xticks=40/cols
                 )
                 ax2.set_zorder(-1)
@@ -432,22 +491,34 @@ def train_keypoints(audio_paths, hop_length, octave_bins=24, n_octaves=7, fmin=5
                        os.listdir(audio_paths) if
                        os.path.isfile(os.path.join(audio_paths, f))]
     for audio_path in audio_paths:
-        kp, desc, S = sift_file(audio_path, hop_length, octave_bins, n_octaves, fmin, sr=sr, **kwargs)
+        fingerprint = Fingerprint(audio_path, sr, settings)
         if dedupe:
             # Remove duplicate keypoints (important for ratio thresholding if source track has exact repeated segments)
-            kp, desc = remove_similar_keypoints(kp, desc)
+            fingerprint.remove_similar_keypoints()
 
-        spectrograms[audio_path] = S
-        keypoints.extend(kp)
-        descriptors.extend(desc)
+        spectrograms[audio_path] = fingerprint.spectrogram
+        keypoints.extend(fingerprint.keypoints)
+        descriptors.extend(fingerprint.descriptors)
 
     matcher = ann.train_matcher(descriptors, algorithm=algorithm)
-    model = Model(matcher, keypoints, settings, spectrograms)
+    model = Model(matcher, keypoints, settings)
     if save:
-        logger.info('Saving model to disk... ({})'.format(save))
-        logger.debug(type(model.matcher))
-        joblib.dump(model, save, compress=True)
+        save_model(model, spectrograms, save)
     return model
+
+
+def save_model(model, spectrograms, directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    path = os.path.join(directory, 'spectograms.p')
+    logger.info('Saving spectrograms to disk... ({})'.format(path))
+    joblib.dump(spectrograms, path, compress=True)
+
+    model.spectrograms = path
+    path = os.path.join(directory, 'model.p')
+    logger.debug(type(model.matcher))
+    logger.info('Saving model to disk... ({})'.format(path))
+    joblib.dump(model, path, compress=True)
 
 
 def remove_similar_keypoints(kp, desc):
@@ -465,31 +536,34 @@ def remove_similar_keypoints(kp, desc):
 
 def find_matches(audio_path, model):
     # Extract keypoints
-    kp, desc, S = sift_file(
-        audio_path,
-        model.settings['hop_length'],
-        model.settings['octave_bins'],
-        model.settings['n_octaves'],
-        model.settings['fmin'],
-        sr=model.settings['sr'],
-        **model.settings['kwargs']
-    )
+    fingerprint = Fingerprint(audio_path, model.settings['sr'], model.settings)
 
     # Find (approximate) nearest neighbors
-    distances, indices = ann.find_neighbors(model.matcher, desc, algorithm=model.settings['algorithm'], k=2)
+    distances, indices = ann.find_neighbors(
+        model.matcher,
+        fingerprint.descriptors,
+        algorithm=model.settings['algorithm'],
+        k=2
+    )
 
     # Build match  objects
     logger.info('Building match objects')
     matches = []
     for i, distance in enumerate(distances):
-        matches.append(Match(kp[i], model.keypoints[indices[i][0]], distance[0], distance[1]))
-    return matches, S, kp
+        matches.append(Match(
+            fingerprint.keypoints[i],
+            model.keypoints[indices[i][0]],
+            distance[0],
+            distance[1]
+        ))
+    return matches, fingerprint.spectrogram, fingerprint.keypoints
 
 
 def query_track(audio_path, model, abs_thresh=None, ratio_thresh=None, cluster_dist=1.0, cluster_size=1, plot=True, plot_all_kp=False, save=True):
     if isinstance(model, str):
-        logger.info('Loading model into memory: {}'.format(model))
-        model = joblib.load(model)
+        model_file = os.path.join(model, 'model.p')
+        logger.info('Loading model into memory: {}'.format(model_file))
+        model = joblib.load(model_file)
     logger.info('Settings: {}'.format(model.settings))
     matches, S, kp = find_matches(audio_path, model)
 
@@ -497,15 +571,18 @@ def query_track(audio_path, model, abs_thresh=None, ratio_thresh=None, cluster_d
     clusters = filter_matches(matches, abs_thresh, ratio_thresh, cluster_dist, cluster_size)
 
     # Plot keypoint images and Draw matching lines
+    spectrograms = model.spectrograms
+    settings = model.settings
+    model = None
     if plot:
-        plot_clusters(S, clusters, model, audio_path, plot_all_kp, kp)
+        plot_clusters(S, clusters, spectrograms, settings, audio_path, plot_all_kp, kp)
         plt.show(block=False)
     if save:
         if not plot:
-            plot_clusters(S, clusters, model, audio_path, plot_all_kp, kp)
+            plot_clusters(S, clusters, spectrograms, settings, audio_path, plot_all_kp, kp)
         plt.savefig('{}_{}.svg'.format(os.path.join('plots', os.path.basename(audio_path)), datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')), format='svg', figsize=(1920, 1080), bbox_inches=None)
 
-    display_results(clusters, model.settings)
+    display_results(clusters, settings)
     return clusters, matches
 
 

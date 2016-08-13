@@ -9,9 +9,10 @@ SKLEARN_ALGS = ['kd_tree', 'ball_tree', 'brute', 'auto']
 
 
 def train_matcher(data, algorithm='kdtree'):
-    if algorithm in FLANN_ALGS:
-        matcher = fit_flann(data, algorithm)
-    elif algorithm in CV_ALGS:
+#    if algorithm in FLANN_ALGS:
+#        matcher = fit_flann(data, algorithm)
+#    el
+    if algorithm in CV_ALGS:
         matcher = fit_cv2(data, algorithm)
     elif algorithm in SKLEARN_ALGS:
         matcher = fit_sklearn(data, algorithm)
@@ -27,10 +28,12 @@ def find_neighbors(matcher, data, algorithm='lshf', k=2):
     if algorithm in FLANN_ALGS:
         matches = matcher.nn_index(np.float32(data), k=k)
         distances, indices = zip(*(((n1.distance, n2.distance), (n1.trainIdx, n2.trainIdx)) for n1, n2 in matches))
-    if algorithm in CV_ALGS:
+    elif algorithm in CV_ALGS:
         matches = matcher.knnMatch(np.float32(data), k=k)
         distances, indices = zip(*(((n1.distance, n2.distance), (n1.trainIdx, n2.trainIdx)) for n1, n2 in matches))
-    if algorithm in SKLEARN_ALGS:
+    elif algorithm in SKLEARN_ALGS:
+        distances, indices = matcher.kneighbors(data, n_neighbors=k)
+    elif algorithm == 'lshf':
         distances, indices = matcher.kneighbors(data, n_neighbors=k)
     return distances, indices
 
