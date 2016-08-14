@@ -10,12 +10,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import ConnectionPatch
 import seaborn
-import vlfeat
-from vlfeat.plotop.vl_plotframe import vl_plotframe
-import librosa
 from sklearn.externals import joblib
+import librosa
+from vlfeat.plotop.vl_plotframe import vl_plotframe
 
-from fingerprint import Fingerprint
+import fingerprint
 import ann
 
 
@@ -23,25 +22,6 @@ seaborn.set(style='ticks')
 seaborn.set_context("paper")
 logger = logging.getLogger(__name__)
 logging.config.fileConfig('logging.ini', disable_existing_loggers=False)
-
-
-class Keypoint(object):
-    def __init__(self, x, y, scale=None, orientation=None, source=None, descriptor=None):
-        self.x = x
-        self.y = y
-        self.scale = scale
-        self.orientation = orientation
-        self.source = source
-        self.descriptor = descriptor
-
-    @property
-    def kp(self):
-        return np.array([
-            self.x,
-            self.y,
-            self.scale,
-            self.orientation
-        ])
 
 
 class Match(object):
@@ -58,134 +38,6 @@ class Model(object):
         self.keypoints = keypoints
         self.settings = settings
         self.spectrograms = spectrograms
-
-
-def cqtgram(y, hop_length=512, octave_bins=24, n_octaves=8, fmin=40, sr=22050,
-            perceptual_weighting=False):
-    S_complex = librosa.cqt(
-        y,
-        sr=sr,
-        hop_length=hop_length,
-        bins_per_octave=octave_bins,
-        n_bins=octave_bins*n_octaves,
-        fmin=fmin,
-        real=False
-    )
-    S = np.abs(S_complex)
-    if perceptual_weighting:
-        freqs = librosa.cqt_frequencies(S.shape[0], fmin=fmin, bins_per_octave=octave_bins)
-        S = librosa.perceptual_weighting(S**2, freqs, ref_power=np.max)
-    else:
-        S = librosa.logamplitude(S**2, ref_power=np.max)
-    #S = librosa.core.spectrum.stft(y, win_length=2048, hop_length=hop_length)
-    #S = librosa.feature.spectral.logfsgram(y, sr=sr, n_fft=2048, hop_length=hop_length, bins_per_octave=octave_bins)
-    return S
-
-
-def chromagram(y, hop_length=512, n_fft=1024, n_chroma=12):
-    S = librosa.feature.chroma_stft(y, n_fft=n_fft, hop_length=hop_length, n_chroma=n_chroma)
-    return S
-
-
-def sift_spectrogram(S, id, height, **kwargs):
-    #I = np.flipud(S)
-    logger.info('{}: Extracting SIFT keypoints...'.format(id))
-    keypoints, descriptors = sift(S, **kwargs)
-    keypoints, descriptors = keypoints.T, descriptors.T
-    logger.info('{}: {} keypoints found!'.format(id, len(keypoints)))
-    keypoints, descriptors = remove_edge_keypoints(keypoints, descriptors, S, height)
-
-    logger.info('{}: Creating keypoint objects...'.format(id))
-    keypoint_objs = []
-    for keypoint, descriptor in zip(keypoints, descriptors):
-        keypoint_objs.append(Keypoint(*keypoint, source=id, descriptor=descriptor))
-
-    return keypoint_objs, descriptors
-
-
-def sift_file(audio_path, hop_length, octave_bins=24, n_octaves=8, fmin=40, sr=22050, **kwargs):
-    logger.info('{}: Loading signal into memory...'.format(audio_path))
-    y, sr = librosa.load(audio_path, sr=sr)
-    #logger.info('{}: Trimming silence...'.format(audio_path))
-    #y = np.concatenate([[0], np.trim_zeros(y), [0]])
-    logger.info('{}: Generating Spectrogram...'.format(audio_path))
-    S = cqtgram(y, hop_length=hop_length, octave_bins=octave_bins, n_octaves=n_octaves, fmin=fmin, sr=sr)
-    #S = chromagram(y, hop_length=256, n_fft=4096, n_chroma=36)
-    keypoints, descriptors = sift_spectrogram(S, audio_path, octave_bins*n_octaves, **kwargs)
-    return keypoints, descriptors, S
-
-
-def remove_edge_keypoints(keypoints, descriptors, S, height):
-    logger.info('Removing edge keypoints...')
-    min_value = np.min(S)
-    start = next((index for index, frame in enumerate(S.T) if sum(value > min_value for value in frame) > height/2), 0)
-    end = S.shape[1] - next((index for index, frame in enumerate(reversed(S.T)) if sum(value > min_value for value in frame) > height/2), 0)
-    start = start + 10
-    end = end - 10
-    out_kp = []
-    out_desc = []
-    for keypoint, descriptor in zip(keypoints, descriptors):
-        # Skip keypoints on the left and right edges of spectrogram
-        if start < keypoint[0] < end:
-            out_kp.append(keypoint)
-            out_desc.append(descriptor)
-    logger.info('Edge keypoints removed: {}, remaining: {}'.format(len(keypoints)-len(out_kp), len(out_kp)))
-    return out_kp, out_desc
-
-
-def sift(S, contrast_thresh=0.1, edge_thresh=100, levels=3, magnif=3, window_size=2, first_octave=0):
-    # Scale to 0-255
-    I = 255 - (S - S.min()) / (S.max() - S.min()) * 255
-    keypoints, descriptors = vlfeat.vl_sift(
-        I.astype(np.float32),
-        peak_thresh=contrast_thresh,
-        edge_thresh=edge_thresh,
-        magnif=magnif,
-        window_size=window_size,
-        first_octave=first_octave,
-    )
-    # Add each keypoint orientation back to descriptors
-    # This effectively removes rotation invariance
-    # TODO: Not sure yet if this is a good idea
-    # descriptors = (descriptors + [kp[3] for kp in keypoints.T])
-    return keypoints, descriptors
-
-
-def sift_match(path1, path2, hop_length, abs_thresh=None, ratio_thresh=None, octave_bins=24, n_octaves=8, fmin=40, cluster_dist=1.5, cluster_size=3, sr=22050):
-    # Extract keypoints
-    kp1, desc1, S1 = sift_file(path1, hop_length, octave_bins=octave_bins, n_octaves=n_octaves, fmin=fmin, sr=sr)
-    kp2, desc2, S2 = sift_file(path2, hop_length, octave_bins=octave_bins, n_octaves=n_octaves, fmin=fmin, sr=sr)
-
-    # Plot keypoint images
-    fig = plt.figure()
-    #mng = plt.get_current_fig_manager()
-    #mng.full_screen_toggle()
-    ax1 = fig.add_subplot(2, 1, 1)
-    plot_spectrogram(S1, hop_length, octave_bins, fmin, path1, sr=sr)
-    vl_plotframe(np.array([kp.kp for kp in kp1]).T, color='g', linewidth=1)
-    ax2 = fig.add_subplot(2, 1, 2)
-    plot_spectrogram(S2, hop_length, octave_bins, fmin, path2, sr=sr)
-    vl_plotframe(np.array([kp.kp for kp in kp2]).T, color='g', linewidth=1)
-
-    # ANN
-    distances, indices = ann.nearest_neighbors(desc1, desc2, k=2)
-
-    # Build match  objects
-    logger.info('Building match objects')
-    matches = []
-    for i, distance in enumerate(distances):
-        matches.append(Match(kp1[i], kp2[indices[i][0]], distance[0], distance[1]))
-
-    # Filter nearest neighbors
-    logger.info('Filtering nearest neighbors down to actual matched samples')
-    cluster_dist = int((sr/ hop_length) * cluster_dist)
-    matches = filter_matches(matches, abs_thresh, ratio_thresh, cluster_dist, cluster_size)
-
-    # Draw matching lines
-    plot_matches(ax1, ax2, matches)
-    plt.tight_layout()
-    plt.show(block=False)
-    return matches
 
 
 def filter_matches(matches, abs_thresh=None, ratio_thresh=None, cluster_dist=20, cluster_size=1, match_orientation=True):
@@ -491,14 +343,14 @@ def train_keypoints(audio_paths, hop_length, octave_bins=24, n_octaves=7, fmin=5
                        os.listdir(audio_paths) if
                        os.path.isfile(os.path.join(audio_paths, f))]
     for audio_path in audio_paths:
-        fingerprint = Fingerprint(audio_path, sr, settings)
+        fp = fingerprint.from_file(audio_path, sr, settings)
         if dedupe:
             # Remove duplicate keypoints (important for ratio thresholding if source track has exact repeated segments)
-            fingerprint.remove_similar_keypoints()
+            fp.remove_similar_keypoints()
 
-        spectrograms[audio_path] = fingerprint.spectrogram
-        keypoints.extend(fingerprint.keypoints)
-        descriptors.extend(fingerprint.descriptors)
+        spectrograms[audio_path] = fp.spectrogram
+        keypoints.extend(fp.keypoints)
+        descriptors.extend(fp.descriptors)
 
     matcher = ann.train_matcher(descriptors, algorithm=algorithm)
     model = Model(matcher, keypoints, settings)
@@ -536,12 +388,12 @@ def remove_similar_keypoints(kp, desc):
 
 def find_matches(audio_path, model):
     # Extract keypoints
-    fingerprint = Fingerprint(audio_path, model.settings['sr'], model.settings)
+    fp = fingerprint.from_file(audio_path, model.settings['sr'], model.settings)
 
     # Find (approximate) nearest neighbors
     distances, indices = ann.find_neighbors(
         model.matcher,
-        fingerprint.descriptors,
+        fp.descriptors,
         algorithm=model.settings['algorithm'],
         k=2
     )
@@ -551,12 +403,12 @@ def find_matches(audio_path, model):
     matches = []
     for i, distance in enumerate(distances):
         matches.append(Match(
-            fingerprint.keypoints[i],
+            fp.keypoints[i],
             model.keypoints[indices[i][0]],
             distance[0],
             distance[1]
         ))
-    return matches, fingerprint.spectrogram, fingerprint.keypoints
+    return matches, fp.spectrogram, fp.keypoints
 
 
 def query_track(audio_path, model, abs_thresh=None, ratio_thresh=None, cluster_dist=1.0, cluster_size=1, plot=True, plot_all_kp=False, save=True):

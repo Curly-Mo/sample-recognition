@@ -1,24 +1,53 @@
 import logging
-import numpy as np
 
-from .sift import Sift
+import numpy as np
 
 
 logger = logging.getLogger(__name__)
 
 
+def from_file(audio_path, sr, settings, feature='sift', **kwargs):
+    if feature == 'sift':
+        from . import sift
+        return sift.from_file(audio_path, sr, settings, **kwargs)
+    else:
+        raise NotImplementedError
+
+
 class Fingerprint(object):
-    def __init__(self, audio_path, sr, settings, implementation='sift'):
-        self.audio_path = audio_path
-        self.sr = sr
-        self.settings = settings
-        if implementation == 'sift':
-            sift = Sift(audio_path, sr, settings)
-            self.keypoints = sift.keypoints
-            self.descriptors = sift.descriptors
-            self.spectrogram = sift.spectrogram
-        else:
+    _keypoints = NotImplemented
+    _descriptors = NotImplemented
+    _spectrogram = NotImplemented
+
+    @property
+    def keypoints(self):
+        if self._keypoints is NotImplemented:
             raise NotImplementedError
+        return self._keypoints
+
+    @keypoints.setter
+    def keypoints(self, value):
+        self._keypoints = value
+
+    @property
+    def descriptors(self):
+        if self._descriptors is NotImplemented:
+            raise NotImplementedError
+        return self._descriptors
+
+    @descriptors.setter
+    def descriptors(self, value):
+        self._descriptors = value
+
+    @property
+    def spectrogram(self):
+        if self._spectrogram is NotImplemented:
+            raise NotImplementedError
+        return self._spectrogram
+
+    @spectrogram.setter
+    def spectrogram(self, value):
+        self._spectrogram = value
 
     def remove_similar_keypoints(self):
         if len(self.descriptors) > 0:
