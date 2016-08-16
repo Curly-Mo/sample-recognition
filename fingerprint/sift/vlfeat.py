@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 class Sift_vlfeat(Sift):
-    def __init__(self, audio_path, sr, settings, implementation='vlfeat'):
-        super(Sift_vlfeat, self).__init__(audio_path, sr, settings)
+    def __init__(self, audio_path, sr, id, settings, implementation='vlfeat'):
+        super(Sift_vlfeat, self).__init__(audio_path, sr, id, settings)
 
     def sift_spectrogram(self, S, id, height, **kwargs):
         # I = np.flipud(S)
