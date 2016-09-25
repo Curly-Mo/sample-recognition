@@ -16,7 +16,7 @@ seaborn.set(style='ticks')
 #seaborn.set_context("paper")
 import cv2
 import librosa
-from sklearn.externals import joblib
+import joblib
 
 import ann
 

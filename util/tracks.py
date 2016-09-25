@@ -1,5 +1,5 @@
 import os
-from sklearn.externals import joblib
+import joblib
 
 
 class Track(object):
@@ -29,11 +29,15 @@ def tracks_from_dir(directory):
 
 def track_from_path(path):
     try:
-        return track_from_tags(path)
+        track = track_from_tags(path)
+        if track.artist and track.title:
+            return track
     except:
         pass
     try:
-        return track_from_filename(path)
+        track = track_from_filename(path)
+        if track.artist and track.title:
+            return track
     except:
         pass
     name = os.path.basename(path)
@@ -81,3 +85,41 @@ def parse_billboard(directory):
             title = parts[3].strip()
             track = Track(path, artist, title)
             yield track
+
+
+def get_source_and_query_tracks(tracks):
+    source = []
+    query = []
+    for track in tracks:
+        for sample in track.samples:
+            details = sample.get('details')
+            if details and details['type'] == 'direct':
+                for t in tracks:
+                    if t.artist == sample['artist'] and t.title == sample['title']:
+                        query.append(track)
+                        source.append(t)
+    return query, source
+
+
+def parse_track_parameter(track_param):
+    """
+    tracks could be a list of files, a directory, or pickle file containing
+    a list of Track objects
+
+    return an iterable of Track objects
+    """
+    if len(track_param) == 1:
+        track_param = track_param[0]
+    try:
+        tracks = joblib.load(track_param)
+        return tracks
+    except:
+        pass
+    if isinstance(track_param, str) and os.path.isdir(track_param):
+        tracks = tracks_from_dir(track_param)
+        return tracks
+    else:
+        if isinstance(track_param, str):
+            track_param = [track_param]
+        tracks = (track_from_path(path) for path in track_param)
+        return tracks

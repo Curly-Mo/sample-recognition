@@ -18,6 +18,8 @@ def train_matcher(data, algorithm='kdtree'):
         matcher = fit_sklearn(data, algorithm)
     elif algorithm == 'lshf':
         matcher = fit_lshf(data)
+    elif algorithm == 'annoy':
+        matcher = fit_annoy(data)
     if not matcher:
         raise ValueError('Invalid matching algorithm: {}'.format(algorithm))
     return matcher
@@ -35,6 +37,13 @@ def find_neighbors(matcher, data, algorithm='lshf', k=2):
         distances, indices = matcher.kneighbors(data, n_neighbors=k)
     elif algorithm == 'lshf':
         distances, indices = matcher.kneighbors(data, n_neighbors=k)
+    elif algorithm == 'annoy':
+        indices = []
+        distances = []
+        for d in data:
+            index, distance = matcher.get_nns_by_vector(d, 2, include_distances=True)
+            indices.append(index)
+            distances.append(distance)
     return distances, indices
 
 
@@ -104,12 +113,30 @@ def fit_sklearn(data, algorithm):
     return matcher
 
 
+def fit_annoy(data, n_trees=-1):
+    logger.info('Fitting Annoy Matcher...')
+    from annoy import AnnoyIndex
+    matcher = AnnoyIndex(data.shape[1], metric='euclidean')
+    for i, d in enumerate(data):
+        matcher.add_item(i, d)
+    matcher.build(n_trees)
+    return matcher
+
+
+def load_annoy(path, n_features=128):
+    logger.info('Loading Annoy Index {}...'.format(path))
+    from annoy import AnnoyIndex
+    matcher = AnnoyIndex(n_features, metric='euclidean')
+    matcher.load(path)
+    return matcher
+
+
 def fit_lshf(data):
     logger.info('Fitting  LSHForest...')
     from sklearn.neighbors import LSHForest
     lshf = LSHForest(
         n_estimators=20,
-        min_hash_match=1,
+        min_hash_match=4,
         n_candidates=200,
         n_neighbors=2,
         radius=1.0,

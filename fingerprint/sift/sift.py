@@ -59,7 +59,7 @@ class Sift(Fingerprint):
         y, sr = librosa.load(self.audio_path, sr=self.sr)
         # logger.info('{}: Trimming silence...'.format(audio_path))
         # y = np.concatenate([[0], np.trim_zeros(y), [0]])
-        logger.info('{}: Generating Spectrogram...'.format(self.audio_path))
+        logger.info('{}: Generating Spectrogram...'.format(self.id))
         S = self.cqtgram(
             y,
             hop_length=hop_length,
@@ -70,8 +70,8 @@ class Sift(Fingerprint):
         # S = chromagram(y, hop_length=256, n_fft=4096, n_chroma=36)
         keypoints, descriptors = self.sift_spectrogram(
             S,
-            self.id,
-            octave_bins*n_octaves,
+            id=self.id,
+            height=octave_bins*n_octaves,
             **kwargs
         )
         return keypoints, descriptors, S
@@ -123,7 +123,7 @@ class Sift(Fingerprint):
         out_desc = []
         for keypoint, descriptor in zip(keypoints, descriptors):
             # Skip keypoints on the left and right edges of spectrogram
-            if start < keypoint[0] < end:
+            if start < keypoint[1] < end:
                 out_kp.append(keypoint)
                 out_desc.append(descriptor)
         logger.info('Edge keypoints removed: {}, remaining: {}'.format(

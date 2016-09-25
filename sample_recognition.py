@@ -5,14 +5,14 @@ import datetime
 import logging
 import logging.config
 import argparse
+from distutils.util import strtobool
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import ConnectionPatch
 import seaborn
-from sklearn.externals import joblib
+import joblib
 import librosa
-from vlfeat.plotop.vl_plotframe import vl_plotframe
 
 import fingerprint
 import ann
@@ -42,7 +42,8 @@ class Model(object):
 
 
 def filter_matches(matches, abs_thresh=None, ratio_thresh=None,
-                   cluster_dist=20, cluster_size=1, match_orientation=True):
+                   cluster_dist=20, cluster_size=1, match_orientation=True,
+                   ordered=False):
     logger.info('Filtering nearest neighbors down to actual matched samples')
     if match_orientation:
         # Remove matches with differing orientations
@@ -79,6 +80,26 @@ def filter_matches(matches, abs_thresh=None, ratio_thresh=None,
     logger.info('Total Clusters: {}, filtered clusters: {}'.format(
         len(clusters), len(filtered_clusters))
     )
+    if ordered:
+        orderedx_clusters = []
+        ordered_clusters = []
+        for cluster in filtered_clusters:
+            sorted_trainx = sorted(cluster, key=lambda m: m.train.x)
+            sorted_queryx = sorted(cluster, key=lambda m: m.query.x)
+            if sorted_trainx == sorted_queryx:
+                orderedx_clusters.append(cluster)
+        logger.info('Total Clusters: {}, orderedx clusters: {}'.format(
+            len(clusters), len(orderedx_clusters))
+        )
+        for cluster in orderedx_clusters:
+            sorted_trainy = sorted(cluster, key=lambda m: m.train.y)
+            sorted_queryy = sorted(cluster, key=lambda m: m.query.y)
+            if sorted_trainy == sorted_queryy:
+                ordered_clusters.append(cluster)
+        logger.info('Total Clusters: {}, ordered clusters: {}'.format(
+            len(clusters), len(ordered_clusters))
+        )
+        filtered_clusters = ordered_clusters
     matches = [match for cluster in filtered_clusters for match in cluster]
     logger.info('Filtered matches: {}'.format(len(matches)))
     return filtered_clusters
@@ -158,7 +179,7 @@ def cluster_matches(matches, cluster_dist):
                     merged_clusters.remove(cluster)
                     logging.info(len(merged_clusters))
                     cluster = c
-        clusters['source'] = merged_clusters
+        clusters[source] = merged_clusters
     clusters = [
         cluster.matches for sources in clusters.values() for cluster in sources
     ]
@@ -284,9 +305,12 @@ def plot_clusters(S, clusters, spectrograms, settings, title,
         cbar=True
     )
 
-    logger.info('Loading spectrograms into memory: {}'.format(spectrograms))
-    spectrograms = joblib.load(spectrograms)
-
+    if isinstance(spectrograms, str):
+        logger.info('Loading spectrograms into memory: {}'.format(
+            spectrograms))
+        loaded_spectrograms = joblib.load(spectrograms)
+    else:
+        loaded_spectrograms = {}
     logger.info('Drawing lines between matches')
     colors = itertools.cycle('bgrck')
     source_plots = {}
@@ -296,8 +320,13 @@ def plot_clusters(S, clusters, spectrograms, settings, title,
             ax2 = source_plots.get(match.train.source, None)
             if ax2 is None:
                 ax2 = fig.add_subplot(rows, cols, cols + len(source_plots) + 1)
+                if loaded_spectrograms.get(match.train.source, None) is None:
+                    logger.info('Loading spectrogram into memory: {}'.format(
+                        spectrograms[match.train.source]))
+                    spec = joblib.load(spectrograms[match.train.source])
+                    loaded_spectrograms[match.train.source] = spec
                 plot_spectrogram(
-                    spectrograms[match.train.source],
+                    loaded_spectrograms[match.train.source],
                     settings['hop_length'],
                     settings['octave_bins'],
                     settings['fmin'],
@@ -319,33 +348,36 @@ def plot_clusters(S, clusters, spectrograms, settings, title,
             if not plot_all_kp:
                 # Plot keypoints
                 plt.axes(ax1)
-                vl_plotframe(
-                    np.matrix(match.query.kp).T, color='g', linewidth=1
-                )
+                plot_keypoint(match.query, color='g', linewidth=1, ax=ax1)
                 plt.axes(ax2)
-                vl_plotframe(
-                    np.matrix(match.train.kp).T, color='g', linewidth=1
-                )
+                plot_keypoint(match.train, color='g', linewidth=1, ax=ax2)
 
     if plot_all_kp:
-        frames = np.array([kp.kp for kp in S_kp])
         plt.axes(ax1)
-        vl_plotframe(frames.T, color='g', linewidth=1)
+        plot_keypoints(S_kp, color='g', linewidth=1)
         for plot in source_plots:
-            frames = np.array([
-                kp.kp for kp in model.keypoints if kp.source == plot
-            ])
+            kps = [kp for kp in model.keypoints if kp.source == plot]
             plt.axes(source_plots[plot])
-            vl_plotframe(frames.T, color='g', linewidth=1)
+            plot_keypoints(kps, color='g', linewidth=1)
     # plt.tight_layout()
     # plt.subplots_adjust(wspace=0.2, hspace=0.2)
 
 
-def plot_keypoints(keypoints, color='g', linewidth=1):
+def plot_keypoint(keypoint, color='g', linewidth=2, ax=None):
+    if ax is None:
+        ax = plt.gcf().gca()
+    c = plt.Circle(
+        (keypoint.x, keypoint.y),
+        keypoint.scale,
+        color=color,
+        fill=False
+    )
+    ax.add_artist(c)
+
+
+def plot_keypoints(keypoints, color='g', linewidth=1, ax=None):
     for keypoint in keypoints:
-        c = plt.Circle((keypoint.x, keypoint.y), keypoint.scale, color=color)
-        ax = plt.gca()
-        ax.add_artist(c)
+        plot_keypoint(keypoint, color, linewidth, ax)
 
 
 def plot_spectrogram(S, hop_length, octave_bins, fmin, title, sr=22050,
@@ -367,19 +399,18 @@ def plot_spectrogram(S, hop_length, octave_bins, fmin, title, sr=22050,
         plt.colorbar(format='%+2.0f dB')
 
 
-def train_keypoints(audio_paths, hop_length, octave_bins=24, n_octaves=7,
+def train_keypoints(tracks, hop_length, octave_bins=24, n_octaves=7,
                     fmin=50, sr=22050, algorithm='lshf', dedupe=False,
                     save=None, **kwargs):
     settings = locals().copy()
-    del settings['audio_paths']
+    for key in settings['kwargs']:
+        settings[key] = settings['kwargs'][key]
+    del settings['kwargs']
+    del settings['tracks']
     logger.info('Settings: {}'.format(settings))
     spectrograms = {}
     keypoints = []
     descriptors = []
-    if isinstance(audio_paths, str) and os.path.isdir(audio_paths):
-        tracks = util.tracks.tracks_from_dir(audio_paths)
-    else:
-        tracks = (util.tracks.track_from_path(path) for path in audio_paths)
     for track in tracks:
         track_id = str(track)
         fp = fingerprint.from_file(track.path, sr, track_id, settings)
@@ -389,27 +420,40 @@ def train_keypoints(audio_paths, hop_length, octave_bins=24, n_octaves=7,
             # has exact repeated segments)
             fp.remove_similar_keypoints()
 
-        spectrograms[track_id] = fp.spectrogram
+        if save:
+            path = save_spectrogram(fp.spectrogram, track_id, save)
+            spectrograms[track_id] = path
         keypoints.extend(fp.keypoints)
         descriptors.extend(fp.descriptors)
-
+    descriptors = np.vstack(descriptors)
     matcher = ann.train_matcher(descriptors, algorithm=algorithm)
     model = Model(matcher, keypoints, settings)
+    model.spectrograms = spectrograms
     if save:
-        save_model(model, spectrograms, save)
+        save_model(model, save)
     return model
 
 
-def save_model(model, spectrograms, directory):
+def save_spectrogram(S, title, directory):
+    directory = os.path.join(directory, 'spectrograms')
     if not os.path.exists(directory):
         os.makedirs(directory)
-    path = os.path.join(directory, 'spectograms.p')
-    logger.info('Saving spectrograms to disk... ({})'.format(path))
-    joblib.dump(spectrograms, path, compress=True)
+    path = os.path.join(directory, '{}.p'.format(title))
+    logger.info('Saving spectrogram to disk... ({})'.format(path))
+    joblib.dump(S, path, compress=True)
+    return path
 
-    model.spectrograms = path
+
+def save_model(model, directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     path = os.path.join(directory, 'model.p')
     logger.debug(type(model.matcher))
+    if model.settings['algorithm'] == 'annoy':
+        annoy_path = os.path.join(directory, 'annoy.ann')
+        logger.info('Saving annoy index to disk... ({})'.format(annoy_path))
+        model.matcher.save(annoy_path)
+        model.matcher = annoy_path
     logger.info('Saving model to disk... ({})'.format(path))
     joblib.dump(model, path, compress=True)
 
@@ -444,11 +488,13 @@ def find_matches(track, model):
 
 def query_track(track, model, abs_thresh=None, ratio_thresh=None,
                 cluster_dist=1.0, cluster_size=1, plot=True,
-                plot_all_kp=False, save=True):
+                plot_all_kp=False, match_orientation=True, save=True):
     if isinstance(model, str):
         model_file = os.path.join(model, 'model.p')
         logger.info('Loading model into memory: {}'.format(model_file))
         model = joblib.load(model_file)
+        if model.settings['algorithm'] == 'annoy':
+            model.matcher = ann.load_annoy(model.matcher)
     logger.info('Settings: {}'.format(model.settings))
     matches, S, kp = find_matches(track, model)
 
@@ -456,7 +502,12 @@ def query_track(track, model, abs_thresh=None, ratio_thresh=None,
         (model.settings['sr'] / model.settings['hop_length']) * cluster_dist
     )
     clusters = filter_matches(
-        matches, abs_thresh, ratio_thresh, cluster_dist, cluster_size
+        matches,
+        abs_thresh,
+        ratio_thresh,
+        cluster_dist,
+        cluster_size,
+        match_orientation,
     )
 
     # Plot keypoint images and Draw matching lines
@@ -487,16 +538,12 @@ def query_track(track, model, abs_thresh=None, ratio_thresh=None,
     return clusters, matches
 
 
-def query_tracks(audio_paths, model, abs_thresh=None, ratio_thresh=None,
+def query_tracks(tracks, model, abs_thresh=None, ratio_thresh=None,
                  cluster_dist=1.0, cluster_size=1, plot=True,
-                 plot_all_kp=False, save=True):
+                 plot_all_kp=False, match_orientation=True, save=True):
     kwargs = locals().copy()
-    kwargs.pop('audio_paths', None)
+    kwargs.pop('tracks', None)
     kwargs.pop('model', None)
-    if isinstance(audio_paths, str) and os.path.isdir(audio_paths):
-        tracks = util.tracks.tracks_from_dir(audio_paths)
-    else:
-        tracks = (util.tracks.track_from_path(path) for path in audio_paths)
     for track in tracks:
         yield query_track(track, model, **kwargs)
 
@@ -537,7 +584,7 @@ if __name__ == '__main__':
     subparsers.required = True
     # train
     train = subparsers.add_parser('train', help='train a new model')
-    train.add_argument('audio_paths', type=str, nargs='+',
+    train.add_argument('tracks', type=str, nargs='+',
                        help='Either a directory or list of files')
     train.add_argument('--hop_length', type=int, default=256,
                        help='Hop length for computing CQTgram')
@@ -559,7 +606,7 @@ if __name__ == '__main__':
                        help='Location to save model to disk')
     # query
     train = subparsers.add_parser('query', help='query tracks')
-    train.add_argument('audio_paths', type=str, nargs='+',
+    train.add_argument('tracks', type=str, nargs='+',
                        help='Either a directory or list of files')
     train.add_argument('model', type=str,
                        help='Location of saved model to query against')
@@ -570,7 +617,9 @@ if __name__ == '__main__':
     train.add_argument('--cluster_dist', type=float, default=1.0,
                        help='Time in seconds for clustering matches')
     train.add_argument('--cluster_size', type=float, default=3,
-                       help='Minimum cluster size to be considered an instance of sampling')
+                       help='Minimum cluster size to be considered a sample')
+    train.add_argument('--match_orientation', type=strtobool, default=True,
+                       help='Remove matches with differing orientations')
     train.add_argument('--plot', type=bool, default=True,
                        help='Plot results')
     train.add_argument('--plot_all_kp', type=bool, default=False,
@@ -586,8 +635,7 @@ if __name__ == '__main__':
         logger.debug("Verbose debugging activated")
     del args.verbose
 
-    if len(args.audio_paths) == 1 and os.path.isdir(args.audio_paths[0]):
-        args.audio_paths = args.audio_paths[0]
+    args.tracks = util.tracks.parse_track_parameter(args.tracks)
 
     if args.command == 'train':
         del args.command

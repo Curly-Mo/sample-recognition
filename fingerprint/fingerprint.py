@@ -6,10 +6,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def from_file(audio_path, sr, id, settings, feature='sift', **kwargs):
+def from_file(audio_path, sr, id, settings, feature='sift'):
     if feature == 'sift':
         from . import sift
-        return sift.from_file(audio_path, sr, id, settings, **kwargs)
+        return sift.from_file(audio_path, sr, id, settings)
     else:
         raise NotImplementedError
 
@@ -65,5 +65,5 @@ class Fingerprint(object):
             logger.info('Removed {} duplicate keypoints'.format(
                 a.shape[0] - idx.shape[0])
             )
-        self.keypoints = kp
-        self.descriptors = desc
+            self.keypoints = kp
+            self.descriptors = desc
