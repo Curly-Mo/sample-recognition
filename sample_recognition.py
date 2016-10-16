@@ -562,9 +562,10 @@ def display_results(clusters, settings):
             print('{} at '.format(source), end='')
             times = []
             for match in sources[source]:
-                time = int(
+                seconds = int(
                     match[0].train.x * settings['hop_length'] / settings['sr']
                 )
+                time = datetime.timedelta(seconds=seconds)
                 times.append(str(time))
             print(', '.join(times))
     print('\n')

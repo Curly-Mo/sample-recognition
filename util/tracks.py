@@ -3,15 +3,31 @@ import joblib
 
 
 class Track(object):
-    def __init__(self, path, artist, title):
-        self.path = path
+    def __init__(self, artist, title, path=None):
         self.artist = artist
         self.title = title
+        self.path = path
+        self.youtube = None
+        self.genre = None
+        self.year = None
         self.samples = []
         self.sampled = []
 
     def __repr__(self):
         return '{} - {}'.format(self.artist, self.title)
+
+
+class Sample(object):
+    def __init__(self, original, derivative, type, instrument):
+        self.original = original
+        self.derivative = derivative
+        self.type = type
+        self.instrument = instrument
+        self.original_times = []
+        self.derivative_times = []
+
+    def __repr__(self):
+        return '{} :: {}'.format(self.original, self.derivative)
 
 
 def load_tracks(tracks_file):
@@ -28,6 +44,7 @@ def tracks_from_dir(directory):
 
 
 def track_from_path(path):
+    print(path)
     try:
         track = track_from_tags(path)
         if track.artist and track.title:
@@ -42,7 +59,8 @@ def track_from_path(path):
         pass
     name = os.path.basename(path)
     name = os.path.splitext(name)[0]
-    track = Track(path, name, name)
+    print(name)
+    track = Track(name, name, path)
     return track
 
 
@@ -50,9 +68,9 @@ def track_from_tags(path):
     import mutagen
     mutagen_track = mutagen.File(path)
     track = Track(
-        path,
-        mutagen_track['artist'][0],
-        mutagen_track['title'][0],
+        artist=mutagen_track['artist'][0],
+        title=mutagen_track['title'][0],
+        path=path,
     )
     return track
 
@@ -63,7 +81,7 @@ def track_from_filename(path):
     parts = name.split(' - ')
     artist = parts[2].strip()
     title = parts[3].strip()
-    track = Track(path, artist, title)
+    track = Track(artist, title, path)
     return track
 
 
@@ -83,7 +101,7 @@ def parse_billboard(directory):
             parts = name.split(' - ')
             artist = parts[2].strip()
             title = parts[3].strip()
-            track = Track(path, artist, title)
+            track = Track(artist, title, path)
             yield track
 
 

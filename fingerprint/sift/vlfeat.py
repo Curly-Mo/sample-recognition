@@ -37,7 +37,6 @@ class Sift_vlfeat(Sift):
     def sift(self, S, contrast_thresh=0.1, edge_thresh=100, levels=3, magnif=3,
              window_size=2, first_octave=0, **kwargs):
         # Scale to 0-255
-        print(contrast_thresh)
         I = 255 - (S - S.min()) / (S.max() - S.min()) * 255
         keypoints, descriptors = cyvlfeat.sift.sift(
             I.astype(np.float32),
