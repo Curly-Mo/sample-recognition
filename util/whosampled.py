@@ -4,6 +4,7 @@ import os
 import datetime
 import requests
 import logging
+from collections import defaultdict
 
 from lxml import html
 
@@ -16,6 +17,120 @@ logger.addHandler(logging.StreamHandler())
 
 
 USERAGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'
+
+GENRE_TOKENS = {
+    'Jazz / Blues': 'Jazz-Blues',
+    'Hip-Hop / Rap / R&B': 'Hip-Hop',
+    'Rock / Pop': 'Rock-Pop',
+    'Soul / Funk / Disco':  'Soul-Funk-Disco',
+    'Electronic / Dance': 'Electronic-Dance',
+    'Reggae': 'Reggae',
+    'Country / Folk': 'Country-Folk',
+    'World': 'World',
+    'Soundtrack': 'Soundtrack',
+    'Classical': 'Classical',
+}
+
+
+def build_pad_set(tracks, query, n=5000):
+    pad_tracks = []
+    year_genres = defaultdict(int)
+    for track in tracks:
+        year_genres[(track.year, track.genre)] += 1
+    print('Year_genres: {}'.format(year_genres))
+    for key, value in year_genres.items():
+        year_genres[key] = round((value / len(tracks)) * n)
+    print('Year_genre percents: {}'.format(year_genres))
+    t = [(track.artist, track.title) for track in tracks]
+    q = [(track.artist, track.title) for track in query]
+    exclude = t + q
+    for key, count in year_genres.items():
+        if count > 0:
+            year, genre = key
+            t = tracks_by_year_genre(year, genre, count, exclude=exclude)
+            pad_keys = [(track.artist, track.title) for track in pad_tracks]
+            for pad_track in t:
+                if (pad_track.artist, pad_track.title) in pad_keys:
+                    logger.info('This track is already in the set, what happened?')
+                    t.remove(pad_track)
+            pad_tracks.extend(t)
+            logger.info('Num Tracks: {}'.format(len(pad_tracks)))
+    return pad_tracks
+
+
+def tracks_by_year_genre(year, genre, n, exclude=[], page=1, type='sampled', useragent=USERAGENT):
+    tracks = []
+    url = 'http://www.whosampled.com/browse/year/{year}/{type}/{genre}/{page}/'.format(
+        year=year,
+        type=type,
+        genre=GENRE_TOKENS[genre],
+        page=page,
+    )
+    logger.info('Processing year-genre: {}'.format(url))
+    p = requests.get(url, headers={'User-Agent': useragent})
+    tree = html.fromstring(p.content)
+    total = tree.find_class('browseYearMenus')[0].find_class('optionMenuLabel')[0]
+    total = total.text_content().split(' ')[0]
+    #if int(total) < n:
+    #    raise 'Rut-roh, not enough tracks available in this year-genre: {}-{}'.format(year, genre)
+    items = tree.find_class('trackItem')
+    for item in items:
+        link = item.find_class('trackName')[0].find('a').get('href')
+        link = 'http://www.whosampled.com' + link
+        track = get_track_data(
+            link,
+            num_sampled=20,
+            require_youtube=False,
+            match_type=False,
+            simple=True,
+        )
+        track.link = link
+        track.year = year
+        track.genre = genre
+        track.page = url
+        if track.youtube is None:
+            logger.info('Track has no youtube associated with it, skipping')
+            continue
+        invalid = False
+        if (track.artist, track.title) in exclude:
+            invalid = True
+        if not invalid:
+            for sample in track.samples:
+                if (sample.original.artist, sample.original.title) in exclude:
+                    invalid = True
+                    break
+        if not invalid:
+            for sample in track.sampled:
+                if (sample.derivative.artist, sample.derivative.title) in exclude:
+                    invalid = True
+                    break
+        if invalid:
+            logger.info('Track samples or is sampled by a track in the dataset')
+            continue
+        tracks.append(track)
+        if len(tracks) >= n:
+            return tracks
+    if not tree.find_class('next'):
+        if type == 'covers':
+            return tracks
+        if type == 'samples':
+            type = 'covers'
+        if type == 'remixed':
+            type = 'samples'
+        if type == 'covered':
+            type = 'remixed'
+        if type == 'sampled':
+            type = 'covered'
+        page = 0
+    keys = [(track.artist, track.title) for track in tracks]
+    return tracks + tracks_by_year_genre(
+        year,
+        genre,
+        n-len(tracks),
+        exclude=exclude+keys,
+        page=page+1,
+        type=type
+    )
 
 
 def top_n_sampled(n=50, num_sampled=10, url='http://www.whosampled.com/most-sampled-tracks/1/', tracks=[], useragent=USERAGENT):
@@ -44,12 +159,12 @@ def top_n_sampled(n=50, num_sampled=10, url='http://www.whosampled.com/most-samp
     return top_n_sampled(n=n, url=next_url, tracks=tracks)
 
 
-def get_track_data(url, num_sampled=10, useragent=USERAGENT, recurse=False):
+def get_track_data(url, num_sampled=10, useragent=USERAGENT, recurse=False, require_youtube=True, match_type=True, simple=False):
     page = requests.get(url, headers={'User-Agent': useragent})
     tree = html.fromstring(page.content)
     trackinfo = tree.find_class('trackInfo')[0]
     title = trackinfo.find('h1').text_content()
-    artist = trackinfo.find_class('trackArtists')[0].find('h2').text_content()
+    artist = trackinfo.find_class('trackArtists')[0].find('h1').find('a').text_content()
     headers = tree.find_class('sectionHeader')
     lists = tree.find_class('list bordered-list')
     track = Track(
@@ -58,7 +173,7 @@ def get_track_data(url, num_sampled=10, useragent=USERAGENT, recurse=False):
         path='',
     )
     embed = tree.find('.//iframe')
-    if embed:
+    if embed is not None:
         track.youtube = youtube_url_from_embed(embed.get('src'))
     for header, elements in zip(headers, lists):
         type = header.find('span').text_content().split()[1]
@@ -68,12 +183,25 @@ def get_track_data(url, num_sampled=10, useragent=USERAGENT, recurse=False):
                 track.samples = get_samples(
                     more_url,
                     derivative=track,
+                    simple=simple,
                 )
             else:
                 items = elements.find_class('trackDetails')
                 for item in items:
                     sample_url = item.find_class('trackName')[0].get('href')
-                    sample = get_sample(sample_url, derivative=track)
+                    if simple:
+                        sample = Sample(
+                            original=track,
+                            derivative=None,
+                            type=None,
+                            instrument=None,
+                        )
+                        sample.derivative = Track(
+                            item.find_class('trackArtist')[0].find('a').text_content(),
+                            item.find_class('trackName')[0].get('title')
+                        )
+                    else:
+                        sample = get_sample(sample_url, derivative=track)
                     track.samples.append(sample)
         if type == 'sampled':
             if header.find_class('moreButton'):
@@ -82,9 +210,10 @@ def get_track_data(url, num_sampled=10, useragent=USERAGENT, recurse=False):
                     more_url,
                     original=track,
                     n=num_sampled,
-                    match_type=True,
-                    require_youtube=True,
-                    recurse=recurse
+                    match_type=match_type,
+                    require_youtube=require_youtube,
+                    recurse=recurse,
+                    simple=simple,
                 )
             else:
                 items = elements.find_class('trackDetails')
@@ -92,12 +221,24 @@ def get_track_data(url, num_sampled=10, useragent=USERAGENT, recurse=False):
                     if len(track.sampled) > num_sampled:
                         break
                     sample_url = item.find_class('trackName')[0].get('href')
-                    sample = get_sample(sample_url, original=track)
+                    if simple:
+                        sample = Sample(
+                            original=track,
+                            derivative=None,
+                            type=None,
+                            instrument=None,
+                        )
+                        sample.derivative = Track(
+                            item.find_class('trackArtist')[0].find('a').text_content(),
+                            item.find_class('trackName')[0].get('title')
+                        )
+                    else:
+                        sample = get_sample(sample_url, original=track)
                     track.sampled.append(sample)
     return track
 
 
-def get_samples(url, original=None, derivative=None, n=10, useragent=USERAGENT, match_type=False, require_youtube=False, recurse=False):
+def get_samples(url, original=None, derivative=None, n=10, useragent=USERAGENT, match_type=False, require_youtube=False, recurse=False, simple=False):
     url = 'http://www.whosampled.com' + url
     page = requests.get(url, headers={'User-Agent': useragent})
     tree = html.fromstring(page.content)
@@ -108,7 +249,30 @@ def get_samples(url, original=None, derivative=None, n=10, useragent=USERAGENT, 
         if len(samples) >= n:
             return samples
         sample_url = item.find_class('trackName')[0].get('href')
-        sample = get_sample(sample_url, original=original, derivative=derivative, recurse=recurse)
+        if simple:
+            sample = Sample(
+                original=original,
+                derivative=derivative,
+                type=None,
+                instrument=None,
+            )
+            if sample.original is None:
+                sample.original = Track(
+                    item.find_class('trackArtist')[0].find('a').text_content(),
+                    item.find_class('trackName')[0].get('title')
+                )
+            if sample.derivative is None:
+                sample.derivative = Track(
+                    item.find_class('trackArtist')[0].find('a').text_content(),
+                    item.find_class('trackName')[0].get('title')
+                )
+        else:
+            sample = get_sample(
+                sample_url,
+                original=original,
+                derivative=derivative,
+                recurse=recurse,
+            )
         if match_type:
             if sample.type != 'direct':
                 continue
@@ -140,6 +304,7 @@ def get_samples(url, original=None, derivative=None, n=10, useragent=USERAGENT, 
             match_type=match_type,
             require_youtube=require_youtube,
             recurse=recurse,
+            simple=simple,
         )
     return samples
 
@@ -173,7 +338,7 @@ def get_sample(url, original=None, derivative=None, useragent=USERAGENT, recurse
         link = info.find_class('trackName')[0].get('href')
         link = 'http://www.whosampled.com' + link
         if recurse:
-            derivative = get_track_data(link, num_sampled=0, recurse=False)
+            derivative = get_track_data(link, num_sampled=0, recurse=False, require_youtube=False)
         else:
             derivative = Track(
                 artist=artist,
@@ -231,6 +396,7 @@ def youtube_url_from_embed(embed_url):
 
 
 def download_tracks(tracks, directory, sampled=False, samples=False):
+    errors = []
     for track in tracks:
         p = download_track(track, directory)
         output, err = p.communicate()  
@@ -240,8 +406,11 @@ def download_tracks(tracks, directory, sampled=False, samples=False):
             output, err = p.communicate()  
         output = output.decode('utf-8')
         print(output)
-        track.path = re.findall('(Destination: |Correcting container in )(.*)\n', output)[-1][-1]
-        track.path = track.path.strip('\"')
+        try:
+            track.path = re.findall('(Destination: |Correcting container in )(.*)\n', output)[-1][-1]
+            track.path = track.path.strip('\"')
+        except:
+            errors.append(track)
         if sampled:
             for sample in track.sampled:
                 s = sample.derivative
@@ -268,12 +437,14 @@ def download_tracks(tracks, directory, sampled=False, samples=False):
                 print(output)
                 s.path = re.findall('(Destination: |Correcting container in )(.*)\n', output)[-1][-1]
                 s.path = s.path.strip('\"')
+    return errors
 
 
 def download_track(track, directory):
+    title = track.title.replace('/', '').replace(':', '')
     path = os.path.join(
         directory,
-        '{}-{}.%(ext)s'.format(track.artist, track.title.replace('%', '%%')),
+        '{}-{}.%(ext)s'.format(track.artist, title),
     )
     p = save_youtube_audio(track.youtube, path)
     track.path = path
@@ -282,6 +453,10 @@ def download_track(track, directory):
 
 def save_youtube_audio(url, path, proxy=False):
     logger.info('Downloading {} to {}...'.format(url, path))
+    path = path.replace('?', '')
+    path = path.replace('*', '')
+    path = path.replace('%', '%%')
+    path = path.replace('"', "'").strip()
     args = [
         'youtube-dl',
         '--extract-audio',

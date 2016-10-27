@@ -29,7 +29,7 @@ class Sift_vlfeat(Sift):
             # cyvlfeat puts y before x
             keypoint[0], keypoint[1] = keypoint[1], keypoint[0]
             keypoint_objs.append(
-                Keypoint(*keypoint, source=id, descriptor=descriptor)
+                Keypoint(*keypoint, source=id)
             )
 
         return keypoint_objs, descriptors

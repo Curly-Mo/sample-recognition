@@ -41,7 +41,7 @@ def find_neighbors(matcher, data, algorithm='lshf', k=2):
         indices = []
         distances = []
         for d in data:
-            index, distance = matcher.get_nns_by_vector(d, 2, include_distances=True)
+            index, distance = matcher.get_nns_by_vector(d, k, include_distances=True)
             indices.append(index)
             distances.append(distance)
     return distances, indices
