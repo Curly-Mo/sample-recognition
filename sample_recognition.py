@@ -19,6 +19,7 @@ import librosa
 import fingerprint
 import ann
 import util.tracks
+import hough
 
 
 seaborn.set(style='ticks')
@@ -124,10 +125,11 @@ def filter_matches(matches, abs_thresh=None, ratio_thresh=None,
             total-len(matches), len(matches))
         )
     # Only keep when there are multiple within a time cluster
-    clusters = list(cluster_matches(matches, cluster_dist))
-    filtered_clusters = [
-        cluster for cluster in clusters if len(cluster) >= cluster_size
-    ]
+    #clusters = list(cluster_matches(matches, cluster_dist))
+    #filtered_clusters = [
+    #    cluster for cluster in clusters if len(cluster) >= cluster_size
+    #]
+    filtered_clusters, clusters = hough.cluster(matches, cluster_size, cluster_dist)
     logger.info('Total Clusters: {}, filtered clusters: {}'.format(
         len(clusters), len(filtered_clusters))
     )
@@ -362,7 +364,7 @@ def plot_clusters(S, clusters, spectrograms, settings, title,
         loaded_spectrograms = joblib.load(spectrograms)
     else:
         loaded_spectrograms = {}
-    logger.info('DTyler, the Creator - Pigsrawing lines between matches')
+    logger.info('Drawing lines between matches')
     colors = itertools.cycle('bgrck')
     source_plots = {}
     for cluster in clusters:
@@ -604,16 +606,19 @@ def query_tracks(tracks, model, abs_thresh=None, ratio_thresh=None,
     true_pos = sum(r.true_pos for r in results)
     false_pos = sum(r.false_pos for r in results)
     false_neg = sum(r.false_neg for r in results)
-    precision = true_pos / (true_pos + false_pos)
-    recall = true_pos / (true_pos + false_neg)
-    f_score = (precision * recall) / (precision + recall)
     print('Totals:')
     print('True Pos: {}'.format(true_pos))
     print('False Pos: {}'.format(false_pos))
     print('False Neg: {}'.format(false_neg))
-    print('precision: {}'.format(precision))
-    print('recall: {}'.format(recall))
-    print('F-score: {}'.format(f_score))
+    try:
+        precision = true_pos / (true_pos + false_pos)
+        recall = true_pos / (true_pos + false_neg)
+        f_score = (precision * recall) / (precision + recall)
+        print('precision: {}'.format(precision))
+        print('recall: {}'.format(recall))
+        print('F-score: {}'.format(f_score))
+    except:
+        print("can't compute f_score")
     return results
 
 
@@ -711,7 +716,7 @@ if __name__ == '__main__':
                        help='Time in seconds for clustering matches')
     train.add_argument('--cluster_size', type=float, default=3,
                        help='Minimum cluster size to be considered a sample')
-    train.add_argument('--match_orientation', type=strtobool, default=True,
+    train.add_argument('--match_orientation', type=strtobool, default=False,
                        help='Remove matches with differing orientations')
     train.add_argument('--plot', type=strtobool, default=True,
                        help='Plot results')
