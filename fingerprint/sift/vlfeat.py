@@ -1,7 +1,7 @@
 import logging
 
 import numpy as np
-import cyvlfeat
+import cyvlfeat.sift
 
 from . import Sift, Keypoint
 
