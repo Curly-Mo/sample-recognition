@@ -25,7 +25,9 @@ import hough
 seaborn.set(style='ticks')
 seaborn.set_context("paper")
 logger = logging.getLogger(__name__)
-logging.config.fileConfig('logging.ini', disable_existing_loggers=False)
+scriptdir = os.path.dirname(os.path.realpath(__file__))
+logfile = os.path.join(scriptdir, 'logging.ini')
+logging.config.fileConfig(logfile, disable_existing_loggers=False)
 
 
 class Match(object):
@@ -727,7 +729,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     import logging.config
-    logging.config.fileConfig('logging.ini', disable_existing_loggers=False)
+    scriptdir = os.path.dirname(os.path.realpath(__file__))
+    logfile = os.path.join(scriptdir, 'logging.ini')
+    logging.config.fileConfig(logfile, disable_existing_loggers=False)
     if args.verbose:
         logger.setLevel(logging.DEBUG)
         logger.debug("Verbose debugging activated")
