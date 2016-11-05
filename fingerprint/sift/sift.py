@@ -54,7 +54,9 @@ class Sift(Fingerprint):
     def sift_file(self, hop_length=512, octave_bins=24, n_octaves=8, fmin=40,
                   **kwargs):
         logger.info(
-            '{}: Loading signal into memory...'.format(self.audio_path)
+            '{}: Loading signal into memory...'.format(
+                self.audio_path.encode('ascii', 'ignore')
+            )
         )
         y, sr = librosa.load(self.audio_path, sr=self.sr)
         # logger.info('{}: Trimming silence...'.format(audio_path))
