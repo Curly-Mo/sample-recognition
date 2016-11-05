@@ -726,6 +726,8 @@ if __name__ == '__main__':
                        help='Plot all keypoints on spectrograms')
     train.add_argument('--save', type=strtobool, default=False,
                        help='Save plot')
+    train.add_argument('--save_results', type=str, default=False,
+                       help='path to save results to')
     args = parser.parse_args()
 
     import logging.config
@@ -745,5 +747,7 @@ if __name__ == '__main__':
     elif args.command == 'query':
         del args.command
         results = query_tracks(**vars(args))
+        if args.save_results:
+            joblib.dump(results, args.save_results, compress=True)
         if args.plot:
             plt.show(block=True)
