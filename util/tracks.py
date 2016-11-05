@@ -44,7 +44,6 @@ def tracks_from_dir(directory):
 
 
 def track_from_path(path):
-    print(path)
     try:
         track = track_from_tags(path)
         if track.artist and track.title:
@@ -59,7 +58,6 @@ def track_from_path(path):
         pass
     name = os.path.basename(path)
     name = os.path.splitext(name)[0]
-    print(name)
     track = Track(name, name, path)
     return track
 
