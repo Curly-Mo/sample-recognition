@@ -726,7 +726,7 @@ if __name__ == '__main__':
                        help='Plot all keypoints on spectrograms')
     train.add_argument('--save', type=strtobool, default=False,
                        help='Save plot')
-    train.add_argument('--save_results', type=str, default=False,
+    train.add_argument('--save_results', type=str, default=None,
                        help='path to save results to')
     args = parser.parse_args()
 
