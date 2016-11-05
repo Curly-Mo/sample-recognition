@@ -634,7 +634,7 @@ def load_model(path):
 
 
 def display_result(result):
-    print('{} sampled from:'.format(result.track))
+    print('{} sampled from:'.format(result.track.encode('ascii', 'ignore')))
     for source, times in result.times.items():
         print('{} at '.format(source))
         for time in times:

@@ -41,7 +41,7 @@ class Sift(Fingerprint):
     def __init__(self, audio_path, sr, id, settings, implementation='vlfeat'):
         self.audio_path = audio_path
         self.sr = sr
-        self.id = id
+        self.id = id.encode('ascii', 'ignore')
         self.settings = settings
         kp, desc, S = self.sift_file(**settings)
         self.keypoints = kp
