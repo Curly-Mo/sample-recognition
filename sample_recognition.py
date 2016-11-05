@@ -497,7 +497,9 @@ def save_spectrogram(S, title, directory):
     if not os.path.exists(directory):
         os.makedirs(directory)
     path = os.path.join(directory, '{}.p'.format(title))
-    logger.info('Saving spectrogram to disk... ({})'.format(path))
+    logger.info('Saving spectrogram to disk... ({})'.format(
+        path.encode('ascii', 'ignore')
+    ))
     joblib.dump(S, path, compress=True)
     return path
 
