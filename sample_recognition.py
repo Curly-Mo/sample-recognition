@@ -505,6 +505,7 @@ def save_spectrogram(S, title, directory):
 
 
 def save_model(model, directory):
+    logger.info('Saving model')
     if not os.path.exists(directory):
         os.makedirs(directory)
     path = os.path.join(directory, 'model.p')

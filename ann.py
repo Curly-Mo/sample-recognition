@@ -119,6 +119,7 @@ def fit_annoy(data, n_trees=-1):
     matcher = AnnoyIndex(data.shape[1], metric='euclidean')
     for i, d in enumerate(data):
         matcher.add_item(i, d)
+    logger.info('Building Annoy Matcher...')
     matcher.build(n_trees)
     return matcher
 
