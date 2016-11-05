@@ -746,8 +746,10 @@ if __name__ == '__main__':
         model = train_keypoints(**vars(args))
     elif args.command == 'query':
         del args.command
+        save_results = args.save_results
+        del args.save_results
         results = query_tracks(**vars(args))
-        if args.save_results:
-            joblib.dump(results, args.save_results, compress=True)
+        if save_results:
+            joblib.dump(results, save_results, compress=True)
         if args.plot:
             plt.show(block=True)
