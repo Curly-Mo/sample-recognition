@@ -116,6 +116,7 @@ def fit_sklearn(data, algorithm):
 def fit_annoy(data, n_trees=-1):
     logger.info('Fitting Annoy Matcher...')
     from annoy import AnnoyIndex
+    logger.info('Building Annoy index...')
     matcher = AnnoyIndex(data.shape[1], metric='euclidean')
     for i, d in enumerate(data):
         matcher.add_item(i, d)

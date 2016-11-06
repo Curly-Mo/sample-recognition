@@ -4,12 +4,13 @@ from collections import defaultdict
 
 
 def cluster(matches, cluster_size=3, cluster_dist=20):
-    clusters = []
+    clusters = set()
     votes = ght(matches, cluster_dist)
     for source, bins in votes.items():
         for bin, cluster in bins.items():
             if len(cluster) > cluster_size:
-                clusters.append(list(cluster))
+                clusters.add(frozenset(cluster))
+    clusters = [list(c) for c in clusters]
     total_clusters = [c for bins in votes.values() for c in bins.values()]
     return clusters, total_clusters
 
