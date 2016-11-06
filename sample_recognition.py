@@ -57,6 +57,8 @@ class Result(object):
         self.clusters = clusters
         self.sources = defaultdict(list)
         self.times = defaultdict(list)
+        self.pitch_shift = defaultdict(list)
+        self.time_stretch = defaultdict(list)
         for c in clusters:
             key = str(c[0].neighbors[0].kp.source)
             self.sources[key].append(c)
@@ -68,6 +70,8 @@ class Result(object):
                 c[0].neighbors[0].kp.x*settings['hop_length']/settings['sr']
             )
             time_t = datetime.timedelta(seconds=seconds)
+            np.mean(abs(m.query.x - m.neighbors[0].x) for m in c)
+            self.times[key].append((time_q, time_t))
             self.times[key].append((time_q, time_t))
         correct = [
             str(s.original) for s in track.samples if str(s.original) in train
@@ -496,7 +500,7 @@ def save_spectrogram(S, title, directory):
     directory = os.path.join(directory, 'spectrograms')
     if not os.path.exists(directory):
         os.makedirs(directory)
-    path = os.path.join(directory, '{}.p'.format(title))
+    path = os.path.join(directory, '{}.p'.format(title.replace('/', '_')))
     logger.info('Saving spectrogram to disk... ({})'.format(
         path.encode('ascii', 'ignore')
     ))
