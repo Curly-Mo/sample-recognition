@@ -17,7 +17,10 @@ def cluster(matches, cluster_size=3, cluster_dist=20):
 
 def ght(matches, cluster_dist=20):
     votes = defaultdict(lambda: defaultdict(set))
-    dim = max(m.neighbors[0].kp.scale for m in matches)
+    try:
+        dim = max(m.neighbors[0].kp.scale for m in matches)
+    except:
+        dim = 2
     for match in matches:
         ds = round_to(match.query.scale / match.neighbors[0].kp.scale, 2)
         d_theta = round_to(match.query.orientation - match.neighbors[0].kp.orientation, 0.6)
