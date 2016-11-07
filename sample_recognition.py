@@ -6,6 +6,7 @@ import logging
 import logging.config
 import argparse
 import math
+import statistics
 from distutils.util import strtobool
 from collections import defaultdict
 
@@ -70,9 +71,21 @@ class Result(object):
                 c[0].neighbors[0].kp.x*settings['hop_length']/settings['sr']
             )
             time_t = datetime.timedelta(seconds=seconds)
-            np.mean(abs(m.query.x - m.neighbors[0].x) for m in c)
             self.times[key].append((time_q, time_t))
-            self.times[key].append((time_q, time_t))
+
+            combos = itertools.combinations(c, 2)
+            stretch_factors = [
+                abs(m2.query.x - m1.query.x)
+                /
+                abs(m2.neighbors[0].kp.x - m1.neighbors[0].kp.x)
+                for m1, m2 in combos
+            ]
+            self.time_stretch[key].append(stretch_factors)
+            pitch_factors = [
+                (m.neighbors[0].kp.y - m.query.y)*12/settings['octave_bins']
+                for m in c
+            ]
+            self.pitch_shift[key].append(pitch_factors)
         correct = [
             str(s.original) for s in track.samples if str(s.original) in train
         ]
@@ -645,9 +658,15 @@ def display_result(result):
         str(result.track).encode('ascii', 'ignore'))
     )
     for source, times in result.times.items():
-        print('{} at '.format(source))
-        for time in times:
-            print('\t{} => {}'.format(*time))
+        print('{} at '.format(source.encode('ascii', 'ignore')))
+        for i, time in enumerate(times):
+            print('\t{} => {}'.format(*time), end='')
+            print('\tPitch_shift: {}'.format(
+                statistics.median(result.pitch_shift[source][i])
+            ), end='')
+            print('\tTime_stretch: {}'.format(
+                statistics.median(result.time_stretch[source][i])
+            ))
     print('True Positives: {}'.format(result.true_pos))
     print('False Positives: {}'.format(result.false_pos))
     print('False Negatives: {}'.format(result.false_neg))
