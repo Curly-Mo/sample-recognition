@@ -11,6 +11,7 @@ from distutils.util import strtobool
 from collections import defaultdict
 
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.patches import ConnectionPatch
 import seaborn
@@ -23,6 +24,8 @@ import util.tracks
 import hough
 
 
+from matplotlib.backends.backend_pgf import FigureCanvasPgf
+matplotlib.backend_bases.register_backend('pdf', FigureCanvasPgf)
 seaborn.set(style='ticks')
 seaborn.set_context("paper")
 logger = logging.getLogger(__name__)
