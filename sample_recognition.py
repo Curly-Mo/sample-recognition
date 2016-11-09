@@ -17,6 +17,7 @@ from matplotlib.patches import ConnectionPatch
 import seaborn
 import joblib
 import librosa
+from tabulate import tabulate
 
 import fingerprint
 import ann
@@ -89,12 +90,16 @@ class Result(object):
                 for m in c
             ]
             self.pitch_shift[key].append(pitch_factors)
-        correct = [
-            str(s.original) for s in track.samples if str(s.original) in train
-        ]
-        self.true_pos = sum(1 for key in self.sources if key in correct)
-        self.false_pos = sum(1 for key in self.sources if key not in correct)
-        self.false_neg = sum(1 for key in correct if key not in self.sources)
+        correct = {
+            str(s.original): s for s in track.samples
+            if str(s.original) in train
+        }
+        self.true_pos = [
+            correct[key] for key in self.sources if key in correct]
+        self.false_pos = [
+            train[key] for key in self.sources if key not in correct]
+        self.false_neg = [
+            correct[key] for key in correct if key not in self.sources]
 
 
 def filter_matches(matches, abs_thresh=None, ratio_thresh=None,
@@ -628,22 +633,7 @@ def query_tracks(tracks, model, abs_thresh=None, ratio_thresh=None,
     kwargs.pop('model', None)
     results = (query_track(track, model, **kwargs) for track in tracks)
     results = list(results)
-    true_pos = sum(r.true_pos for r in results)
-    false_pos = sum(r.false_pos for r in results)
-    false_neg = sum(r.false_neg for r in results)
-    print('Totals:')
-    print('True Pos: {}'.format(true_pos))
-    print('False Pos: {}'.format(false_pos))
-    print('False Neg: {}'.format(false_neg))
-    try:
-        precision = true_pos / (true_pos + false_pos)
-        recall = true_pos / (true_pos + false_neg)
-        f_score = (precision * recall) / (precision + recall)
-        print('precision: {}'.format(precision))
-        print('recall: {}'.format(recall))
-        print('F-score: {}'.format(f_score))
-    except:
-        print("can't compute f_score")
+    display_results(results)
     return results
 
 
@@ -670,37 +660,43 @@ def display_result(result):
             print('\tTime_stretch: {}'.format(
                 statistics.median(result.time_stretch[source][i])
             ))
-    print('True Positives: {}'.format(result.true_pos))
-    print('False Positives: {}'.format(result.false_pos))
-    print('False Negatives: {}'.format(result.false_neg))
+    print('True Positives: {}'.format(len(result.true_pos)))
+    print('False Positives: {}'.format(len(result.false_pos)))
+    print('False Negatives: {}'.format(len(result.false_neg)))
     print('\n')
 
 
-def display_results(clusters, settings):
-    if clusters:
-        print('{} sampled from:'.format(clusters[0][0].query.source))
-        sources = {}
-        for cluster in clusters:
-            if cluster[0].neighbors[0].kp.source in sources:
-                sources[cluster[0].neighbors[0].kp.source].append(cluster)
-            else:
-                sources[cluster[0].neighbors[0].kp.source] = [cluster]
-
-        for source in sources:
-            print('{} at '.format(source), end='')
-            times = []
-            for match in sources[source]:
-                seconds = int(
-                    match[0].neighbors[0].kp.x * settings['hop_length'] / settings['sr']
-                )
-                time = datetime.timedelta(seconds=seconds)
-                times.append(str(time))
-            print(', '.join(times))
-    print('\n')
-
-
-def main():
-    print('main')
+def display_results(results):
+    true_pos = sum(len(r.true_pos) for r in results)
+    false_pos = sum(len(r.false_pos) for r in results)
+    false_neg = sum(len(r.false_neg) for r in results)
+    print('Totals:')
+    print('True Pos: {}'.format(true_pos))
+    print('False Pos: {}'.format(false_pos))
+    print('False Neg: {}'.format(false_neg))
+    try:
+        precision = true_pos / (true_pos + false_pos)
+        recall = true_pos / (true_pos + false_neg)
+        f_score = (precision * recall) / (precision + recall)
+        print('precision: {}'.format(precision))
+        print('recall: {}'.format(recall))
+        print('F-score: {}'.format(f_score))
+    except:
+        print("can't compute f_score")
+    instruments = defaultdict(lambda: defaultdict(int))
+    for r in results:
+        for s in r.true_pos:
+            instruments[s.instrument]['true_pos'] += 1
+        for i in r.false_pos:
+            instruments[s.instrument]['false_pos'] += 1
+        for s in r.false_neg:
+            instruments[s.instrument]['false_neg'] += 1
+    recalls = []
+    for i in instruments:
+        pos = instruments[i]['true_pos']
+        neg = instruments[i]['false_neg']
+        recalls.append([i, pos / (pos + neg)])
+    print(tabulate(recalls, headers=['recall'], tablefmt='latex'))
 
 
 if __name__ == '__main__':
