@@ -525,7 +525,7 @@ def save_spectrogram(S, title, directory):
     logger.info('Saving spectrogram to disk... ({})'.format(
         path.encode('ascii', 'ignore')
     ))
-    joblib.dump(S, path, compress=True)
+    joblib.dump(S, path)
     return path
 
 
@@ -541,7 +541,7 @@ def save_model(model, directory):
         model.matcher.save(annoy_path)
         model.matcher = annoy_path
     logger.info('Saving model to disk... ({})'.format(path))
-    joblib.dump(model, path, compress=True)
+    joblib.dump(model, path)
 
 
 def find_matches(track, model):
@@ -777,6 +777,6 @@ if __name__ == '__main__':
         del args.save_results
         results = query_tracks(**vars(args))
         if save_results:
-            joblib.dump(results, save_results, compress=True)
+            joblib.dump(results, save_results)
         if args.plot:
             plt.show(block=True)
