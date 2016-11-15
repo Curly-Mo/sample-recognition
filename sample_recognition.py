@@ -66,6 +66,10 @@ class Result(object):
         self.time_stretch = defaultdict(list)
         for c in clusters:
             key = str(c[0].neighbors[0].kp.source).decode()
+            try:
+                key = key.decode()
+            except AttributeError:
+                pass
             self.sources[key].append(c)
             seconds = int(
                 c[0].query.x * settings['hop_length'] / settings['sr']
