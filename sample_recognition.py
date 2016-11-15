@@ -65,7 +65,7 @@ class Result(object):
         self.pitch_shift = defaultdict(list)
         self.time_stretch = defaultdict(list)
         for c in clusters:
-            key = str(c[0].neighbors[0].kp.source).decode()
+            key = c[0].neighbors[0].kp.source.__repr__()
             try:
                 key = key.decode()
             except AttributeError:
