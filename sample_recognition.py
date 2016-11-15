@@ -65,11 +65,11 @@ class Result(object):
         self.pitch_shift = defaultdict(list)
         self.time_stretch = defaultdict(list)
         for c in clusters:
-            key = c[0].neighbors[0].kp.source.__repr__()
+            key = c[0].neighbors[0].kp.source
             try:
                 key = key.decode()
             except AttributeError:
-                pass
+                key = str(key)
             self.sources[key].append(c)
             seconds = int(
                 c[0].query.x * settings['hop_length'] / settings['sr']
