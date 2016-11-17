@@ -14,7 +14,7 @@ class Track(object):
         self.sampled = []
 
     def __repr__(self):
-        return '{} - {}'.format(self.artist, self.title)
+        return '{} - {}'.format(self.artist, self.title).encode('ascii', 'ignore').decode()
 
 
 class Sample(object):
