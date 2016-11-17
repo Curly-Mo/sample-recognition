@@ -99,11 +99,11 @@ class Result(object):
             if str(s.original) in train
         }
         self.true_pos = [
-            correct[key] for key in self.sources if key in correct]
+            correct.get(key) for key in self.sources if key in correct]
         self.false_pos = [
-            train[key] for key in self.sources if key not in correct]
+            train.get(key) for key in self.sources if key not in correct]
         self.false_neg = [
-            correct[key] for key in correct if key not in self.sources]
+            correct.get(key) for key in correct if key not in self.sources]
 
 
 def filter_matches(matches, abs_thresh=None, ratio_thresh=None,
